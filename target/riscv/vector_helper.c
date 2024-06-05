@@ -277,8 +277,20 @@ vext_ldst_us(void *vd, target_ulong base, CPURISCVState *env, uint32_t desc,
 
     VSTART_CHECK_EARLY_EXIT(env);
 
+    uint32_t mod = evl % 8;
+
     /* load bytes from guest memory */
-    for (i = env->vstart; i < evl; env->vstart = ++i) {
+    for (i = env->vstart; i < (evl - mod); env->vstart = i) {
+        k = 0;
+        while (k < nf) {
+            target_ulong addr = base + ((i * nf + k) << log2_esz);
+            lde_d(env, adjust_addr(env, addr), i + k * max_elems, vd, ra);
+            k++;
+        }
+    i += 8;
+    }
+    env->vstart = i;
+    for (; i < evl; env->vstart = ++i) {
         k = 0;
         while (k < nf) {
             target_ulong addr = base + ((i * nf + k) << log2_esz);
