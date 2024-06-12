@@ -277,25 +277,33 @@ vext_ldst_us(void *vd, target_ulong base, CPURISCVState *env, uint32_t desc,
 
     VSTART_CHECK_EARLY_EXIT(env);
 
-    uint32_t mod = evl % 8;
-
+    // As we are going to load/store 8 bytes of data per time adjust the
+    // parameters accordingly.
+    // Also take into account the size of the elements of the calling
+    // instruction in order to calculate correctly from evl and log2_esz
+    // the number of 8-byte elements per iteration and the maximum number of
+    // elements the vector register can host.
+    uint32_t log2_esz_d = 3;
+    uint32_t evl_d = evl >> (3 - log2_esz);
+    uint32_t max_elems_d = vext_max_elems(desc, log2_esz_d);
     /* load bytes from guest memory */
-    for (i = env->vstart; i < (evl - mod); env->vstart = i) {
-        k = 0;
-        while (k < nf) {
-            target_ulong addr = base + ((i * nf + k) << log2_esz);
-            ldst_elem_d(env, adjust_addr(env, addr), i + k * max_elems, vd, ra);
-            k++;
+    if (evl_d > 0) {
+        for (i = env->vstart; i < evl_d; env->vstart = ++i) {
+            k = 0;
+            while (k < nf) {
+                target_ulong addr = base + ((i * nf + k) << log2_esz_d);
+                ldst_elem_d(env, adjust_addr(env, addr), i + k * max_elems_d, vd, ra);
+                k++;
+            }
         }
-    i += 8;
-    }
-    env->vstart = i;
-    for (; i < evl; env->vstart = ++i) {
-        k = 0;
-        while (k < nf) {
-            target_ulong addr = base + ((i * nf + k) << log2_esz);
-            ldst_elem(env, adjust_addr(env, addr), i + k * max_elems, vd, ra);
-            k++;
+    } else { /* Load/Store data byte by byte if the evl is < 8 */
+        for (i = env->vstart; i < evl; env->vstart = ++i) {
+            k = 0;
+            while (k < nf) {
+                target_ulong addr = base + ((i * nf + k) << log2_esz);
+                ldst_elem(env, adjust_addr(env, addr), i + k * max_elems, vd, ra);
+                k++;
+            }
         }
     }
     env->vstart = 0;
