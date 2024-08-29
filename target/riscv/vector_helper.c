@@ -393,6 +393,7 @@ vext_ldst_us(void *vd, target_ulong base, CPURISCVState *env, uint32_t desc,
         return;
     }
 
+#ifdef CONFIG_USER_ONLY
     /* For data sizes <= 64 bits and for LMUL=1 with VLEN=128 bits we get a
      * better performance by doing a simple simulation of the load/store
      * without the overhead of prodding the host RAM */
@@ -437,6 +438,7 @@ vext_ldst_us(void *vd, target_ulong base, CPURISCVState *env, uint32_t desc,
         vext_set_tail_elems_1s(evl, vd, desc, nf, esz, max_elems);
         return;
     }
+#endif
 
     /* Calculate the page range of first page */
     addr = base + ((env->vstart * nf) << log2_esz);
