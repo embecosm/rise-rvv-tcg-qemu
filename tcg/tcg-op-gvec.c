@@ -1038,6 +1038,37 @@ static void expand_4i_i64(uint32_t dofs, uint32_t aofs, uint32_t bofs,
     tcg_temp_free_i64(t0);
 }
 
+//static void vec_gen_ldst(TCGOpcode opc, TCGv_vec r, TCGv_ptr b, TCGArg o)
+//{
+//    TCGArg ri = tcgv_vec_arg(r);
+//    TCGArg bi = tcgv_ptr_arg(b);
+//    TCGTemp *rt = arg_temp(ri);
+//    TCGType type = rt->base_type;
+//
+//    vec_gen_3(opc, type, 0, ri, bi, o);
+//}
+//
+//void tcg_gen_ld_vec(TCGv_vec r, TCGv_ptr b, TCGArg o)
+//{
+//    vec_gen_ldst(INDEX_op_ld_vec, r, b, o);
+//}
+
+static void expand_vec_ld_r(unsigned vece, uint32_t vofs, TCGv_ptr ptr,
+                            uint32_t oprsz, uint32_t tysz, TCGType type)
+{
+    for (uint32_t i = 0; i < oprsz; i += tysz) {
+        TCGv_vec t0 = tcg_temp_new_vec(type);
+        //TCGv_vec t1 = tcg_temp_new_vec(type);
+
+        tcg_gen_ld_vec(t0, ptr, i);
+        //if (load_dest) {
+        //    tcg_gen_ld_vec(t1, tcg_env, dofs + i);
+        //}
+        //fni(vece, t1, t0);
+        tcg_gen_st_vec(t0, vofs, i);
+    }
+}
+
 /* Expand OPSZ bytes worth of two-operand operations using host vectors.  */
 static void expand_2_vec(unsigned vece, uint32_t dofs, uint32_t aofs,
                          uint32_t oprsz, uint32_t tysz, TCGType type,
@@ -1193,6 +1224,47 @@ static void expand_4i_vec(unsigned vece, uint32_t dofs, uint32_t aofs,
         tcg_gen_st_vec(t0, tcg_env, dofs + i);
     }
 }
+
+void tcg_gen_gvec_ld(uint32_t vofs, TCGv_ptr base, uint32_t sew,
+                     uint32_t oprsz, uint32_t maxsz, const GVecGen2 *g)
+{
+    const TCGOpcode *this_list = g->opt_opc ? : vecop_list_empty;
+    const TCGOpcode *hold_list = tcg_swap_vecop_list(this_list);
+    TCGType type;
+    uint32_t some;
+
+    check_size_align(oprsz, maxsz, vofs);
+ //   check_overlap_2(vofs, aofs, maxsz);
+
+    type = 0;
+    if (g->fniv) {
+        type = choose_vector_type(g->opt_opc, g->vece, oprsz, g->prefer_i64);
+    }
+    switch (sew) {
+    case 3:
+        expand_vec_ld_r(vofs, base, oprsz, 8, g->load_dest, g->fni8);
+        break;
+    case 2:
+        expand_vec_ld_r(vofs, base, oprsz, 4, g->load_dest, g->fni8);
+        break;
+    case 1:
+        expand_vec_ld_r(vofs, base, oprsz, 2, g->load_dest, g->fni8);
+        break;
+    case 0:
+        expand_vec_ld_r(vofs, base, oprsz, 1, g->load_dest, g->fni8);
+        break;
+    default:
+        g_assert_not_reached();
+    }
+    tcg_swap_vecop_list(hold_list);
+
+    if (oprsz < maxsz) {
+	    // FIXME: tmp
+        g_assert_not_reached();
+//       expand_clr(dofs + oprsz, maxsz - oprsz);
+    }
+}
+
 
 /* Expand a vector two-operand operation.  */
 void tcg_gen_gvec_2(uint32_t dofs, uint32_t aofs,
