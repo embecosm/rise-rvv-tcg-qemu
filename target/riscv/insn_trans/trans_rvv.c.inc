@@ -1100,24 +1100,60 @@ GEN_VEXT_TRANS(vle64ff_v, MO_64, r2nfvm, ldff_op, ld_us_check)
 typedef void gen_helper_ldst_whole(TCGv_ptr, TCGv, TCGv_env, TCGv_i32);
 
 static bool ldst_whole_trans(uint32_t vd, uint32_t rs1, uint32_t nf,
-                             gen_helper_ldst_whole *fn,
+                             uint32_t log2_esz, gen_helper_ldst_whole *fn,
                              DisasContext *s)
 {
     TCGv_ptr dest;
     TCGv base;
     TCGv_i32 desc;
+    uint32_t max_elems = s->cfg_ptr->vlenb >> log2_esz;
+    uint32_t evl = nf * max_elems;
+    uint32_t esz = 1 << log2_esz;
 
+    /* NF == 1
+     * vl1re16.v v3, (a0) # Load v3 with VLEN/16 halfwords from address a0
+     * NF = 2
+     * vl2re16.v v2, (a0) # Load v2,v3 with 2*VLEN/16 halfwords from address a0
+     */
     uint32_t data = FIELD_DP32(0, VDATA, NF, nf);
     data = FIELD_DP32(data, VDATA, VM, 1);
     dest = tcg_temp_new_ptr();
     desc = tcg_constant_i32(simd_desc(s->cfg_ptr->vlenb,
                                       s->cfg_ptr->vlenb, data));
 
+    /* FIXME: very annoying indentation problem from above line forces every newline to insert a lot of tabs */
+    /* a0 */
     base = get_gpr(s, rs1, EXT_NONE);
+    /* v3 */
     tcg_gen_addi_ptr(dest, tcg_env, vreg_ofs(s, vd));
 
     mark_vs_dirty(s);
 
+    /*
+static bool do_narrow_extract(DisasContext *s, arg_rri_esz *a,
+                              const GVecGen2 ops[3])
+{
+    if (a->esz < 0 || a->esz > MO_32 || a->imm != 0) {
+        return false;
+    }
+    if (sve_access_check(s)) {
+        unsigned vsz = vec_full_reg_size(s);
+        tcg_gen_gvec_2(vec_full_reg_offset(s, a->rd),
+                        vec_full_reg_offset(s, a->rn),
+                        vsz, vsz, &ops[a->esz]);
+    }
+    return true;
+}
+    the gvec nodes don't seem to consider loads and stores.
+    Need to pass the offset of the vector register as in vreg_ofs.
+    Need to pass the base register.
+    Need to add a function for the load? See other GVecGen operations used around in the targets. Any load/store?
+    
+    */
+
+    tcg_gen_add_ptr(base, base, tcg_env);
+
+    tcg_gen_gvec_ld(vreg_ofs(s, vd), base);
     fn(dest, base, tcg_env, desc);
 
     finalize_rvv_inst(s);
@@ -1128,33 +1164,33 @@ static bool ldst_whole_trans(uint32_t vd, uint32_t rs1, uint32_t nf,
  * load and store whole register instructions ignore vtype and vl setting.
  * Thus, we don't need to check vill bit. (Section 7.9)
  */
-#define GEN_LDST_WHOLE_TRANS(NAME, ARG_NF)                                \
+#define GEN_LDST_WHOLE_TRANS(NAME, ETYPE, ARG_NF)                                \
 static bool trans_##NAME(DisasContext *s, arg_##NAME * a)                 \
 {                                                                         \
     if (require_rvv(s) &&                                                 \
         QEMU_IS_ALIGNED(a->rd, ARG_NF)) {                                 \
-        return ldst_whole_trans(a->rd, a->rs1, ARG_NF,                    \
+        return ldst_whole_trans(a->rd, a->rs1, ARG_NF, ctzl(sizeof(ETYPE))                    \
                                 gen_helper_##NAME, s);                    \
     }                                                                     \
     return false;                                                         \
 }
 
-GEN_LDST_WHOLE_TRANS(vl1re8_v,  1)
-GEN_LDST_WHOLE_TRANS(vl1re16_v, 1)
-GEN_LDST_WHOLE_TRANS(vl1re32_v, 1)
-GEN_LDST_WHOLE_TRANS(vl1re64_v, 1)
-GEN_LDST_WHOLE_TRANS(vl2re8_v,  2)
-GEN_LDST_WHOLE_TRANS(vl2re16_v, 2)
-GEN_LDST_WHOLE_TRANS(vl2re32_v, 2)
-GEN_LDST_WHOLE_TRANS(vl2re64_v, 2)
-GEN_LDST_WHOLE_TRANS(vl4re8_v,  4)
-GEN_LDST_WHOLE_TRANS(vl4re16_v, 4)
-GEN_LDST_WHOLE_TRANS(vl4re32_v, 4)
-GEN_LDST_WHOLE_TRANS(vl4re64_v, 4)
-GEN_LDST_WHOLE_TRANS(vl8re8_v,  8)
-GEN_LDST_WHOLE_TRANS(vl8re16_v, 8)
-GEN_LDST_WHOLE_TRANS(vl8re32_v, 8)
-GEN_LDST_WHOLE_TRANS(vl8re64_v, 8)
+GEN_LDST_WHOLE_TRANS(vl1re8_v,  int8_t,  1)
+GEN_LDST_WHOLE_TRANS(vl1re16_v, int16_t, 1)
+GEN_LDST_WHOLE_TRANS(vl1re32_v, int32_t, 1)
+GEN_LDST_WHOLE_TRANS(vl1re64_v, int64_t, 1)
+GEN_LDST_WHOLE_TRANS(vl2re8_v,  int8_t,  2)
+GEN_LDST_WHOLE_TRANS(vl2re16_v, int16_t, 2)
+GEN_LDST_WHOLE_TRANS(vl2re32_v, int32_t, 2)
+GEN_LDST_WHOLE_TRANS(vl2re64_v, int64_t  2)
+GEN_LDST_WHOLE_TRANS(vl4re8_v,  int8_t,  4)
+GEN_LDST_WHOLE_TRANS(vl4re16_v, int16_t, 4)
+GEN_LDST_WHOLE_TRANS(vl4re32_v, int32_t, 4)
+GEN_LDST_WHOLE_TRANS(vl4re64_v, int64_t, 4)
+GEN_LDST_WHOLE_TRANS(vl8re8_v,  int8_t,  8)
+GEN_LDST_WHOLE_TRANS(vl8re16_v, int16_t, 8)
+GEN_LDST_WHOLE_TRANS(vl8re32_v, int32_t, 8)
+GEN_LDST_WHOLE_TRANS(vl8re64_v, int64_t, 8)
 
 /*
  * The vector whole register store instructions are encoded similar to
