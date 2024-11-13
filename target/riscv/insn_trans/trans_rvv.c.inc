@@ -1106,13 +1106,33 @@ static bool ldst_whole_trans(uint32_t vd, uint32_t rs1, uint32_t nf,
     TCGv_ptr dest;
     TCGv base;
     TCGv_i32 desc;
+
+    /* We might want to use these values from here instead of the helper function
+     * because the tcg_gen functions use information about the size of the elements
+     * in the array or the number of max elements in an array. Consider that the whole register
+     * loads/stores unlike other vector loads/stores will always perform the load/store
+     * on all the max elements intead of the number of active elements in a register only,
+     * so it's not based on vl (that is a parameter set every time by vsetvl/vsetvli and is
+     * the number of elements in a vector register on which to perform an operation)
+     * but on all the elements (max_elems = length of the register in bytes divided by
+     * the size in bytes of the single element).
+     * nf here (number of fields) determines how many vector registers are processed at once.
+     * We might load 2 or 3 or 4 registers at a time for instance.
+     * Better to start with the simple case nf=1 and then see how to handle the multiple
+     * destinations when nf=2,3... this might require some extra tcg functions to accept multiple
+     * destination registers. */
     uint32_t max_elems = s->cfg_ptr->vlenb >> log2_esz;
     uint32_t evl = nf * max_elems;
     uint32_t esz = 1 << log2_esz;
 
-    /* NF == 1
+    /* vl${NF}re${SEW}.v
+     * 
+     * NF = 1,2,4,8
+     * SEW = 8,16,32,64 (bits)
+     * 
+     * NF == 1
      * vl1re16.v v3, (a0) # Load v3 with VLEN/16 halfwords from address a0
-     * NF = 2
+     * NF == 2
      * vl2re16.v v2, (a0) # Load v2,v3 with 2*VLEN/16 halfwords from address a0
      */
     uint32_t data = FIELD_DP32(0, VDATA, NF, nf);
@@ -1129,7 +1149,8 @@ static bool ldst_whole_trans(uint32_t vd, uint32_t rs1, uint32_t nf,
 
     mark_vs_dirty(s);
 
-    /*
+    /* Example of a call to a tcg_gen_gvec function from RVV code:
+     *
 static bool do_narrow_extract(DisasContext *s, arg_rri_esz *a,
                               const GVecGen2 ops[3])
 {
@@ -1144,17 +1165,31 @@ static bool do_narrow_extract(DisasContext *s, arg_rri_esz *a,
     }
     return true;
 }
-    the gvec nodes don't seem to consider loads and stores.
-    Need to pass the offset of the vector register as in vreg_ofs.
-    Need to pass the base register.
-    Need to add a function for the load? See other GVecGen operations used around in the targets. Any load/store?
+    FIXME: We might need to pass the offset of the register calculated on top of the base tcg_env address (address of the local block?) with vreg_ofs.
     
+    tcg_gen_addi_ptr(dest, tcg_env, vreg_ofs(s, vd));
+
+    Try and use "dest" in the call to tcg_gen_gvec_ld below if things don't work out, instead of passing vreg_ofs(s, vd).
+
+    Our load instruction uses register addressing so we need the content of the scalar register operand summed to an offset.
+    The tcg_gen_gvec_ld function will use a destination register and an address/pointer. It will then do a loop of loads based on
+    the size of the whole operation by adding the iteration index to the pointer.
+    We need then to generate an add instruction to create the memory address / pointer made of the tcg_env + the content of the base register.
     */
 
     tcg_gen_add_ptr(base, base, tcg_env);
 
-    tcg_gen_gvec_ld(vreg_ofs(s, vd), base);
-    fn(dest, base, tcg_env, desc);
+    /*
+    the gvec nodes don't seem to consider loads and stores.
+    Need to pass the offset of the vector register as in vreg_ofs.
+    Need to pass the base register.
+    Need to add a function for the load? See other GVecGen operations used around in the targets. Any load/store?
+    */
+
+    tcg_gen_gvec_ld(vreg_ofs(s, vd), base /*FIXME: other parameters needed*/);
+
+    // Original call to the C helper function that we want to avoid.
+//    fn(dest, base, tcg_env, desc);
 
     finalize_rvv_inst(s);
     return true;
