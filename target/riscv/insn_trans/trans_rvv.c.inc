@@ -1101,11 +1101,11 @@ typedef void gen_helper_ldst_whole(TCGv_ptr, TCGv, TCGv_env, TCGv_i32);
 
 static bool ldst_whole_trans(uint32_t vd, uint32_t rs1, uint32_t nf,
                              uint32_t log2_esz, gen_helper_ldst_whole *fn,
-                             DisasContext *s)
+                             DisasContext *s, bool is_load)
 {
     TCGv_ptr dest;
-    TCGv base;
-    TCGv_i32 desc;
+    TCGv_ptr ld_addr = tcg_temp_new_ptr();
+    TCGv base_reg;
 
     /* We might want to use these values from here instead of the helper function
      * because the tcg_gen functions use information about the size of the elements
@@ -1122,8 +1122,8 @@ static bool ldst_whole_trans(uint32_t vd, uint32_t rs1, uint32_t nf,
      * destinations when nf=2,3... this might require some extra tcg functions to accept multiple
      * destination registers. */
     uint32_t max_elems = s->cfg_ptr->vlenb >> log2_esz;
-    uint32_t evl = nf * max_elems;
-    uint32_t esz = 1 << log2_esz;
+//    uint32_t evl = nf * max_elems;
+//    uint32_t esz = 1 << log2_esz;
 
     /* vl${NF}re${SEW}.v
      * 
@@ -1138,37 +1138,16 @@ static bool ldst_whole_trans(uint32_t vd, uint32_t rs1, uint32_t nf,
     uint32_t data = FIELD_DP32(0, VDATA, NF, nf);
     data = FIELD_DP32(data, VDATA, VM, 1);
     dest = tcg_temp_new_ptr();
-    desc = tcg_constant_i32(simd_desc(s->cfg_ptr->vlenb,
-                                      s->cfg_ptr->vlenb, data));
 
-    /* FIXME: very annoying indentation problem from above line forces every newline to insert a lot of tabs */
     /* a0 */
-    base = get_gpr(s, rs1, EXT_NONE);
+    //if (get_xl(s) == MXL_RV32) {
+    base_reg = get_gpr(s, rs1, EXT_NONE);
     /* v3 */
     tcg_gen_addi_ptr(dest, tcg_env, vreg_ofs(s, vd));
 
     mark_vs_dirty(s);
 
-    /* Example of a call to a tcg_gen_gvec function from RVV code:
-     *
-static bool do_narrow_extract(DisasContext *s, arg_rri_esz *a,
-                              const GVecGen2 ops[3])
-{
-    if (a->esz < 0 || a->esz > MO_32 || a->imm != 0) {
-        return false;
-    }
-    if (sve_access_check(s)) {
-        unsigned vsz = vec_full_reg_size(s);
-        tcg_gen_gvec_2(vec_full_reg_offset(s, a->rd),
-                        vec_full_reg_offset(s, a->rn),
-                        vsz, vsz, &ops[a->esz]);
-    }
-    return true;
-}
-    FIXME: We might need to pass the offset of the register calculated on top of the base tcg_env address (address of the local block?) with vreg_ofs.
-    
-    tcg_gen_addi_ptr(dest, tcg_env, vreg_ofs(s, vd));
-
+    /*
     Try and use "dest" in the call to tcg_gen_gvec_ld below if things don't work out, instead of passing vreg_ofs(s, vd).
 
     Our load instruction uses register addressing so we need the content of the scalar register operand summed to an offset.
@@ -1177,19 +1156,23 @@ static bool do_narrow_extract(DisasContext *s, arg_rri_esz *a,
     We need then to generate an add instruction to create the memory address / pointer made of the tcg_env + the content of the base register.
     */
 
-    tcg_gen_add_ptr(base, base, tcg_env);
+    tcg_gen_add_ptr(ld_addr, (TCGv_ptr)base_reg, tcg_env);
 
     /*
-    the gvec nodes don't seem to consider loads and stores.
-    Need to pass the offset of the vector register as in vreg_ofs.
-    Need to pass the base register.
     Need to add a function for the load? See other GVecGen operations used around in the targets. Any load/store?
     */
 
-    tcg_gen_gvec_ld(vreg_ofs(s, vd), base /*FIXME: other parameters needed*/);
+    /* The size of the elements (8,16,32,64 bits) doesn't seem to be used to select the
+     * appropriate host vector in tcg/tcg-op-gvec.c:choose_vector_type. */
+
+    if (is_load) {
+      tcg_gen_gvec_ld(vreg_ofs(s, vd), ld_addr, max_elems, max_elems /*FIXME: other parameters needed*/);
+    } else {
+      tcg_gen_gvec_st(vreg_ofs(s, vd), ld_addr, max_elems, max_elems /*FIXME: other parameters needed*/);
+    }
 
     // Original call to the C helper function that we want to avoid.
-//    fn(dest, base, tcg_env, desc);
+    // fn(dest, base, tcg_env, desc);
 
     finalize_rvv_inst(s);
     return true;
@@ -1199,42 +1182,42 @@ static bool do_narrow_extract(DisasContext *s, arg_rri_esz *a,
  * load and store whole register instructions ignore vtype and vl setting.
  * Thus, we don't need to check vill bit. (Section 7.9)
  */
-#define GEN_LDST_WHOLE_TRANS(NAME, ETYPE, ARG_NF)                                \
+#define GEN_LDST_WHOLE_TRANS(NAME, ETYPE, ARG_NF, IS_LOAD)                                \
 static bool trans_##NAME(DisasContext *s, arg_##NAME * a)                 \
 {                                                                         \
     if (require_rvv(s) &&                                                 \
         QEMU_IS_ALIGNED(a->rd, ARG_NF)) {                                 \
-        return ldst_whole_trans(a->rd, a->rs1, ARG_NF, ctzl(sizeof(ETYPE))                    \
-                                gen_helper_##NAME, s);                    \
+        return ldst_whole_trans(a->rd, a->rs1, ARG_NF, ctzl(sizeof(ETYPE)),                    \
+                                gen_helper_##NAME, s, IS_LOAD);                    \
     }                                                                     \
     return false;                                                         \
 }
 
-GEN_LDST_WHOLE_TRANS(vl1re8_v,  int8_t,  1)
-GEN_LDST_WHOLE_TRANS(vl1re16_v, int16_t, 1)
-GEN_LDST_WHOLE_TRANS(vl1re32_v, int32_t, 1)
-GEN_LDST_WHOLE_TRANS(vl1re64_v, int64_t, 1)
-GEN_LDST_WHOLE_TRANS(vl2re8_v,  int8_t,  2)
-GEN_LDST_WHOLE_TRANS(vl2re16_v, int16_t, 2)
-GEN_LDST_WHOLE_TRANS(vl2re32_v, int32_t, 2)
-GEN_LDST_WHOLE_TRANS(vl2re64_v, int64_t  2)
-GEN_LDST_WHOLE_TRANS(vl4re8_v,  int8_t,  4)
-GEN_LDST_WHOLE_TRANS(vl4re16_v, int16_t, 4)
-GEN_LDST_WHOLE_TRANS(vl4re32_v, int32_t, 4)
-GEN_LDST_WHOLE_TRANS(vl4re64_v, int64_t, 4)
-GEN_LDST_WHOLE_TRANS(vl8re8_v,  int8_t,  8)
-GEN_LDST_WHOLE_TRANS(vl8re16_v, int16_t, 8)
-GEN_LDST_WHOLE_TRANS(vl8re32_v, int32_t, 8)
-GEN_LDST_WHOLE_TRANS(vl8re64_v, int64_t, 8)
+GEN_LDST_WHOLE_TRANS(vl1re8_v,  int8_t,  1, true)
+GEN_LDST_WHOLE_TRANS(vl1re16_v, int16_t, 1, true)
+GEN_LDST_WHOLE_TRANS(vl1re32_v, int32_t, 1, true)
+GEN_LDST_WHOLE_TRANS(vl1re64_v, int64_t, 1, true)
+GEN_LDST_WHOLE_TRANS(vl2re8_v,  int8_t,  2, true)
+GEN_LDST_WHOLE_TRANS(vl2re16_v, int16_t, 2, true)
+GEN_LDST_WHOLE_TRANS(vl2re32_v, int32_t, 2, true)
+GEN_LDST_WHOLE_TRANS(vl2re64_v, int64_t, 2, true)
+GEN_LDST_WHOLE_TRANS(vl4re8_v,  int8_t,  4, true)
+GEN_LDST_WHOLE_TRANS(vl4re16_v, int16_t, 4, true)
+GEN_LDST_WHOLE_TRANS(vl4re32_v, int32_t, 4, true)
+GEN_LDST_WHOLE_TRANS(vl4re64_v, int64_t, 4, true)
+GEN_LDST_WHOLE_TRANS(vl8re8_v,  int8_t,  8, true)
+GEN_LDST_WHOLE_TRANS(vl8re16_v, int16_t, 8, true)
+GEN_LDST_WHOLE_TRANS(vl8re32_v, int32_t, 8, true)
+GEN_LDST_WHOLE_TRANS(vl8re64_v, int64_t, 8, true)
 
 /*
  * The vector whole register store instructions are encoded similar to
  * unmasked unit-stride store of elements with EEW=8.
  */
-GEN_LDST_WHOLE_TRANS(vs1r_v, 1)
-GEN_LDST_WHOLE_TRANS(vs2r_v, 2)
-GEN_LDST_WHOLE_TRANS(vs4r_v, 4)
-GEN_LDST_WHOLE_TRANS(vs8r_v, 8)
+GEN_LDST_WHOLE_TRANS(vs1r_v, int8_t, 1, false)
+GEN_LDST_WHOLE_TRANS(vs2r_v, int8_t, 2, false)
+GEN_LDST_WHOLE_TRANS(vs4r_v, int8_t, 4, false)
+GEN_LDST_WHOLE_TRANS(vs8r_v, int8_t, 8, false)
 
 /*
  *** Vector Integer Arithmetic Instructions
