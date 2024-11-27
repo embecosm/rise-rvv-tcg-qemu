@@ -1103,76 +1103,25 @@ static bool ldst_whole_trans(uint32_t vd, uint32_t rs1, uint32_t nf,
                              uint32_t log2_esz, gen_helper_ldst_whole *fn,
                              DisasContext *s, bool is_load)
 {
-    TCGv_ptr dest;
-    TCGv_ptr ld_addr = tcg_temp_new_ptr();
-    TCGv base_reg;
+    TCGv addr;
+    addr = get_address(s, rs1, 0);
 
-    /* We might want to use these values from here instead of the helper function
-     * because the tcg_gen functions use information about the size of the elements
-     * in the array or the number of max elements in an array. Consider that the whole register
-     * loads/stores unlike other vector loads/stores will always perform the load/store
-     * on all the max elements intead of the number of active elements in a register only,
-     * so it's not based on vl (that is a parameter set every time by vsetvl/vsetvli and is
-     * the number of elements in a vector register on which to perform an operation)
-     * but on all the elements (max_elems = length of the register in bytes divided by
-     * the size in bytes of the single element).
-     * nf here (number of fields) determines how many vector registers are processed at once.
-     * We might load 2 or 3 or 4 registers at a time for instance.
-     * Better to start with the simple case nf=1 and then see how to handle the multiple
-     * destinations when nf=2,3... this might require some extra tcg functions to accept multiple
-     * destination registers. */
-    uint32_t max_elems = s->cfg_ptr->vlenb >> log2_esz;
-//    uint32_t evl = nf * max_elems;
-//    uint32_t esz = 1 << log2_esz;
+    TCGv_i128 t16 = tcg_temp_new_i128();
 
-    /* vl${NF}re${SEW}.v
-     * 
-     * NF = 1,2,4,8
-     * SEW = 8,16,32,64 (bits)
-     * 
-     * NF == 1
-     * vl1re16.v v3, (a0) # Load v3 with VLEN/16 halfwords from address a0
-     * NF == 2
-     * vl2re16.v v2, (a0) # Load v2,v3 with 2*VLEN/16 halfwords from address a0
-     */
-    uint32_t data = FIELD_DP32(0, VDATA, NF, nf);
-    data = FIELD_DP32(data, VDATA, VM, 1);
-    dest = tcg_temp_new_ptr();
 
-    /* a0 */
-    //if (get_xl(s) == MXL_RV32) {
-    base_reg = get_gpr(s, rs1, EXT_NONE);
-    /* v3 */
-    tcg_gen_addi_ptr(dest, tcg_env, vreg_ofs(s, vd));
-
-    mark_vs_dirty(s);
-
-    /*
-    Try and use "dest" in the call to tcg_gen_gvec_ld below if things don't work out, instead of passing vreg_ofs(s, vd).
-
-    Our load instruction uses register addressing so we need the content of the scalar register operand summed to an offset.
-    The tcg_gen_gvec_ld function will use a destination register and an address/pointer. It will then do a loop of loads based on
-    the size of the whole operation by adding the iteration index to the pointer.
-    We need then to generate an add instruction to create the memory address / pointer made of the tcg_env + the content of the base register.
-    */
-
-    tcg_gen_add_ptr(ld_addr, (TCGv_ptr)base_reg, tcg_env);
-
-    /*
-    Need to add a function for the load? See other GVecGen operations used around in the targets. Any load/store?
-    */
-
-    /* The size of the elements (8,16,32,64 bits) doesn't seem to be used to select the
-     * appropriate host vector in tcg/tcg-op-gvec.c:choose_vector_type. */
-
-    if (is_load) {
-      tcg_gen_gvec_ld(vreg_ofs(s, vd), ld_addr, max_elems, max_elems /*FIXME: other parameters needed*/);
-    } else {
-      tcg_gen_gvec_st(vreg_ofs(s, vd), ld_addr, max_elems, max_elems /*FIXME: other parameters needed*/);
+    for (int i=0; i < s->cfg_ptr->vlenb; i+=16) {
+        addr = get_address(s, rs1, i);
+        if (is_load) {
+            tcg_gen_qemu_ld_i128(t16, addr, s->mem_idx,
+                                 MO_LE | MO_128 | MO_ATOM_NONE);
+            tcg_gen_st_i128(t16, tcg_env, vreg_ofs(s, vd) + i);
+        } else {
+            tcg_gen_ld_i128(t16, tcg_env, vreg_ofs(s, vd) + i);
+            tcg_gen_qemu_st_i128(t16, addr, s->mem_idx,
+                                 MO_LE | MO_128 | MO_ATOM_NONE);
+        }
     }
-
-    // Original call to the C helper function that we want to avoid.
-    // fn(dest, base, tcg_env, desc);
+    mark_vs_dirty(s);
 
     finalize_rvv_inst(s);
     return true;
