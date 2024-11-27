@@ -1194,59 +1194,6 @@ static void expand_4i_vec(unsigned vece, uint32_t dofs, uint32_t aofs,
     }
 }
 
-static void expand_vec_ld_r(uint32_t vofs, TCGv_ptr ptr,
-                            uint32_t oprsz, uint32_t tysz, TCGType type)
-{
-    TCGv_vec t0 = tcg_temp_new_vec(type);
-    for (uint32_t i = 0; i < oprsz; i += tysz) {
-        tcg_gen_ld_vec(t0, ptr, i);
-        tcg_gen_st_vec(t0, tcg_env, vofs + i);
-    }
-    tcg_temp_free_vec(t0);
-}
-
-void tcg_gen_gvec_ld(uint32_t vofs, TCGv_ptr ptr,
-                     uint32_t oprsz, uint32_t maxsz)
-{
-    TCGType type;
-
-    check_size_align(oprsz, maxsz, vofs);
-    type = choose_vector_type(NULL, maxsz, oprsz, 0);
-    expand_vec_ld_r(vofs, ptr, oprsz, maxsz, type);
-
-    if (oprsz < maxsz) {
-	    // FIXME: tmp
-        g_assert_not_reached();
-    }
-}
-
-static void expand_vec_st_r(uint32_t vofs, TCGv_ptr ptr,
-                            uint32_t oprsz, uint32_t tysz, TCGType type)
-{
-    TCGv_vec t0 = tcg_temp_new_vec(type);
-    for (uint32_t i = 0; i < oprsz; i += tysz) {
-        tcg_gen_ld_vec(t0, tcg_env, vofs + i);
-        tcg_gen_st_vec(t0, ptr, i);
-    }
-    tcg_temp_free_vec(t0);
-}
-
-void tcg_gen_gvec_st(uint32_t vofs, TCGv_ptr ptr,
-                     uint32_t oprsz, uint32_t maxsz)
-{
-    TCGType type;
-
-    check_size_align(oprsz, maxsz, vofs);
-    type = choose_vector_type(NULL, maxsz, oprsz, 0);
-    expand_vec_st_r(vofs, ptr, oprsz, maxsz, type);
-
-    if (oprsz < maxsz) {
-	// FIXME: tmp
-        g_assert_not_reached();
-    }
-}
-
-
 /* Expand a vector two-operand operation.  */
 void tcg_gen_gvec_2(uint32_t dofs, uint32_t aofs,
                     uint32_t oprsz, uint32_t maxsz, const GVecGen2 *g)
