@@ -246,6 +246,11 @@ void tcg_gen_gvec_4i(uint32_t dofs, uint32_t aofs, uint32_t bofs, uint32_t cofs,
 
 /* Expand a specific vector operation.  */
 
+
+void tcg_gen_gvec_ld_v128(TCGv_ptr env, uint32_t o,
+			  TCGv_ptr addr, TCGArg idx, MemOp memop);
+void tcg_gen_gvec_st_v128(TCGv_ptr env, uint32_t o,
+			  TCGv_ptr addr, TCGArg idx, MemOp memop);
 void tcg_gen_gvec_mov(unsigned vece, uint32_t dofs, uint32_t aofs,
                       uint32_t oprsz, uint32_t maxsz);
 void tcg_gen_gvec_not(unsigned vece, uint32_t dofs, uint32_t aofs,

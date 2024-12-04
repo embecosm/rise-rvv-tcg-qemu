@@ -1194,6 +1194,47 @@ static void expand_4i_vec(unsigned vece, uint32_t dofs, uint32_t aofs,
     }
 }
 
+void tcg_gen_gvec_ld_v128(TCGv_ptr env, uint32_t o,
+			  TCGv_ptr addr, TCGArg idx, MemOp memop)
+{
+    MemOpIdx orig_oi = make_memop_idx(memop, idx);
+//    check_max_alignment(memop_alignment_bits(memop));
+
+    TCGv_vec t0 = tcg_temp_new_vec(TCG_TYPE_V128);
+////    static void vec_gen_ldst(TCGOpcode opc, TCGv_vec r, TCGv_ptr b, TCGArg o)
+////{
+//    TCGArg ri = tcgv_vec_arg(t0);
+//    //TCGArg bi = tcgv_ptr_arg(b);
+//    TCGTemp *rt = arg_temp(ri);
+//    TCGType type = rt->base_type;
+////
+////    vec_gen_3(INDEX_op_ld_vec, type, 0, ri, addr, orig_oi);
+    tcg_gen_ld_vec(t0, addr, orig_oi);
+//    tcg_gen_op3(INDEX_op_ld_vec, tcgv_vec_arg(t0), addr, o);
+    tcg_gen_st_vec(t0, env, o);
+//}
+}
+
+void tcg_gen_gvec_st_v128(TCGv_ptr env, uint32_t o,
+			  TCGv_ptr addr, TCGArg idx, MemOp memop)
+{
+    MemOpIdx orig_oi = make_memop_idx(memop, idx);
+//    check_max_alignment(memop_alignment_bits(memop));
+
+    TCGv_vec t0 = tcg_temp_new_vec(TCG_TYPE_V128);
+////    static void vec_gen_ldst(TCGOpcode opc, TCGv_vec r, TCGv_ptr b, TCGArg o)
+////{
+//    TCGArg ri = tcgv_vec_arg(val);
+//    //TCGArg bi = tcgv_ptr_arg(b);
+//    TCGTemp *rt = arg_temp(ri);
+//    TCGType type = rt->base_type;
+
+    tcg_gen_ld_vec(t0, env, o);
+    tcg_gen_st_vec(t0, addr, orig_oi);
+//    vec_gen_3(INDEX_op_st_vec, type, 0, ri, addr, origin_oi);
+////}
+}
+
 /* Expand a vector two-operand operation.  */
 void tcg_gen_gvec_2(uint32_t dofs, uint32_t aofs,
                     uint32_t oprsz, uint32_t maxsz, const GVecGen2 *g)

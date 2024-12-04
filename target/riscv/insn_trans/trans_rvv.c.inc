@@ -1106,19 +1106,25 @@ static bool ldst_whole_trans(uint32_t vd, uint32_t rs1, uint32_t nf,
     TCGv addr;
     addr = get_address(s, rs1, 0);
 
-    TCGv_i128 t16 = tcg_temp_new_i128();
+    //TCGv_i128 t16 = tcg_temp_new_i128();
+//    TCGv_vec t16 = tcg_temp_new_vec(TCG_TYPE_V128);
 
 
     for (int i=0; i < s->cfg_ptr->vlenb; i+=16) {
         addr = get_address(s, rs1, i);
         if (is_load) {
-            tcg_gen_qemu_ld_i128(t16, addr, s->mem_idx,
-                                 MO_LE | MO_128 | MO_ATOM_NONE);
-            tcg_gen_st_i128(t16, tcg_env, vreg_ofs(s, vd) + i);
+//            tcg_gen_qemu_ld_i128(t16, addr, s->mem_idx,
+//                                 MO_LE | MO_128 | MO_ALIGN_16);
+	    tcg_gen_gvec_ld_v128(tcg_env, vreg_ofs(s, vd), (TCGv_ptr)addr, s->mem_idx, MO_LE | MO_128 | MO_ALIGN_16);
+//            tcg_gen_st_i128(t16, tcg_env, vreg_ofs(s, vd) + i);
+//	    tcg_gen_op3(INDEX_op_ld_vec, tcgv_vec_arg(t16), addr, s->mem_idx);
+//	    tcg_gen_st_vec(t16, tcg_env, vreg_ofs(s, vd));
         } else {
-            tcg_gen_ld_i128(t16, tcg_env, vreg_ofs(s, vd) + i);
-            tcg_gen_qemu_st_i128(t16, addr, s->mem_idx,
-                                 MO_LE | MO_128 | MO_ATOM_NONE);
+//            tcg_gen_ld_i128(t16, tcg_env, vreg_ofs(s, vd) + i);
+//	    tcg_gen_gvec_ldst_v128(INDEX_op_st_vec, t16, addr, s->mem_idx);
+	    tcg_gen_gvec_st_v128(tcg_env, vreg_ofs(s, vd), (TCGv_ptr)addr, s->mem_idx, MO_LE | MO_128 | MO_ALIGN_16);
+//            tcg_gen_qemu_st_i128(t16, addr, s->mem_idx,
+//                                 MO_LE | MO_128 | MO_ALIGN_16);
         }
     }
     mark_vs_dirty(s);
