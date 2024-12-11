@@ -1121,7 +1121,6 @@ static bool ldst_whole_trans(uint32_t vd, uint32_t rs1, uint32_t nf,
                                  MO_LE | MO_128 | MO_ATOM_NONE);
         }
     }
-    mark_vs_dirty(s);
 
     finalize_rvv_inst(s);
     return true;
