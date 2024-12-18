@@ -1108,10 +1108,16 @@ static bool ldst_whole_trans(uint32_t vd, uint32_t rs1, uint32_t nf,
 {
     TCGv addr;
     addr = get_address(s, rs1, 0);
+    uint32_t size = s->cfg_ptr->vlenb * nf;
 
     TCGv_i128 t16 = tcg_temp_new_i128();
 
-    for (int i=0; i < s->cfg_ptr->vlenb; i+=16) {
+    /*
+     * Load/store minimum vlenb bytes per iteration.
+     * When possible do this atomically.
+     * Update vstart with the number of processed elements.
+     */
+    for (int i=0; i < size; i+=16) {
         addr = get_address(s, rs1, i);
         if (is_load) {
 	    tcg_gen_qemu_ld_i128(t16, addr, s->mem_idx,
