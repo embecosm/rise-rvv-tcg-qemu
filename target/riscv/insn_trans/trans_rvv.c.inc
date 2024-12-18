@@ -16,6 +16,9 @@
  */
 #include "tcg/tcg-op-gvec.h"
 #include "tcg/tcg-gvec-desc.h"
+//#include "exec/plugin-gen.h"
+//#include "tcg/tcg-internal.h"
+//#include "tcg/tcg-op-common.h"
 #include "internals.h"
 
 static inline bool is_overlapped(const int8_t astart, int8_t asize,
@@ -1108,20 +1111,20 @@ static bool ldst_whole_trans(uint32_t vd, uint32_t rs1, uint32_t nf,
 
     TCGv_i128 t16 = tcg_temp_new_i128();
 
-
     for (int i=0; i < s->cfg_ptr->vlenb; i+=16) {
         addr = get_address(s, rs1, i);
         if (is_load) {
-            tcg_gen_qemu_ld_i128(t16, addr, s->mem_idx,
-                                 MO_LE | MO_128 | MO_ATOM_NONE);
-            tcg_gen_st_i128(t16, tcg_env, vreg_ofs(s, vd) + i);
+	    tcg_gen_qemu_ld_i128(t16, addr, s->mem_idx,
+		    MO_LE | MO_128 | MO_ATOM_WITHIN16);
+	    tcg_gen_st_i128(t16, tcg_env, vreg_ofs(s, vd) + i);
+	    tcg_gen_addi_tl(cpu_vstart, cpu_vstart, 16 >> log2_esz);
         } else {
             tcg_gen_ld_i128(t16, tcg_env, vreg_ofs(s, vd) + i);
             tcg_gen_qemu_st_i128(t16, addr, s->mem_idx,
-                                 MO_LE | MO_128 | MO_ATOM_NONE);
+		    MO_LE | MO_128 | MO_ATOM_WITHIN16);
+	    tcg_gen_addi_tl(cpu_vstart, cpu_vstart, 16 >> log2_esz);
         }
     }
-
     finalize_rvv_inst(s);
     return true;
 }
